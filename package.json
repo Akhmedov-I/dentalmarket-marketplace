@@ -1,0 +1,24 @@
+{
+  "name": "dentalmarket",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DentalMarket — multi-platform marketplace for certified dental equipment",
+  "scripts": {
+    "dev:backend": "pnpm --filter backend dev",
+    "dev:frontend": "pnpm --filter frontend dev",
+    "build:backend": "pnpm --filter backend build",
+    "build:frontend": "pnpm --filter frontend build",
+    "test:backend": "pnpm --filter backend test",
+    "lint": "pnpm -r lint",
+    "db:migrate": "pnpm --filter backend exec prisma migrate dev",
+    "db:deploy": "pnpm --filter backend exec prisma migrate deploy",
+    "db:seed": "pnpm --filter backend exec prisma db seed",
+    "db:studio": "pnpm --filter backend exec prisma studio",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "routingStrategy": "dynamic",
+  "defaultModel": "gemini-1.5-flash", 
+  "rules": [
+    {
+      "intent": ["architecture", "planning", "database_schema", "openapi_contract"],
+      "model": "gemini-1.5-pro",
+      "reasoning": "Требуется глубокий анализ ТЗ и проектирование сложных систем."
+    },
+    {
+      "filePatterns": ["*.test.js", "*.spec.ts", "jest.config.js"],
+      "model": "gemini-1.5-flash",
+      "temperature": 0.2,
+      "reasoning": "Написание тестов — рутинная задача, не требующая дорогой модели."
+    },
+    {
+      "filePatterns": ["*.css", "*.scss", "tailwind.config.js"],
+      "model": "gemini-1.5-flash",
+      "reasoning": "Верстка и стилизация выполняются быстрой моделью."
+    },
+    {
+      "intent": ["debugging", "error_resolution"],
+      "model": "gemini-1.5-pro",
+      "condition": "retry_count > 2",
+      "reasoning": "Если дешевая модель не смогла исправить баг за 2 попытки, подключаем мощную."
+    }
+  ],
+  "localFailover": {
+    "enabled": true,
+    "provider": "ollama",
+    "model": "qwen2.5-coder:7b",
+    "fallbackCondition": "api_quota_exceeded"
+  }
+}

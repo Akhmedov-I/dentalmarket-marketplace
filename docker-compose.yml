@@ -1,0 +1,107 @@
+# =============================================================================
+# DentalMarket – Local Development Infrastructure
+# Usage:  docker compose up -d
+# Reset:  docker compose down -v  (destroys volumes)
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL 16 – primary relational database
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: dentalmarket
+      POSTGRES_PASSWORD: dentalmarket_dev
+      POSTGRES_DB: dentalmarket
+    volumes:
+      - ./docker-data/postgres:/var/lib/postgresql/data
+      - ./docker-data/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dentalmarket -d dentalmarket"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dentalmarket-net
+
+  # ---------------------------------------------------------------------------
+  # Redis 7 – caching & session store
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - ./docker-data/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dentalmarket-net
+
+  # ---------------------------------------------------------------------------
+  # OpenSearch 2.11 – full-text / product search engine
+  # ---------------------------------------------------------------------------
+  opensearch:
+    image: opensearchproject/opensearch:2.11.0
+    restart: unless-stopped
+    ports:
+      - "9200:9200"
+    environment:
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+    volumes:
+      - ./docker-data/opensearch:/usr/share/opensearch/data
+    networks:
+      - dentalmarket-net
+
+  # ---------------------------------------------------------------------------
+  # RabbitMQ 3.13 – message broker (management UI on :15672)
+  # ---------------------------------------------------------------------------
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: dentalmarket
+      RABBITMQ_DEFAULT_PASS: dentalmarket_dev
+    volumes:
+      - ./docker-data/rabbitmq:/var/lib/rabbitmq
+    networks:
+      - dentalmarket-net
+
+  # ---------------------------------------------------------------------------
+  # ClickHouse 24.1 – analytics / OLAP database
+  # ---------------------------------------------------------------------------
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.1-alpine
+    restart: unless-stopped
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    environment:
+      CLICKHOUSE_USER: dentalmarket
+      CLICKHOUSE_PASSWORD: dentalmarket_dev
+      CLICKHOUSE_DB: dentalmarket_analytics
+    volumes:
+      - ./docker-data/clickhouse:/var/lib/clickhouse
+    networks:
+      - dentalmarket-net
+
+# =============================================================================
+# Shared network
+# =============================================================================
+networks:
+  dentalmarket-net:
+    driver: bridge

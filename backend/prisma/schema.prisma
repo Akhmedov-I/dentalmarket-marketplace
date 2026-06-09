@@ -1,0 +1,951 @@
+// =============================================================================
+// DentalMarket — Prisma Schema
+// =============================================================================
+// Source: _docs/DentalMarket_Technical_Specification.md, Section 4
+// Convention: All tables use UUID PK, snake_case in DB, camelCase in Prisma
+// Money: BigInt minor units (tiyin/cents) + Char(3) ISO-4217 currency
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// ENUMS
+// =============================================================================
+
+enum UserStatus {
+  active
+  suspended
+  pending
+  banned
+
+  @@map("user_status")
+}
+
+enum SellerType {
+  manufacturer
+  authorised_distributor
+  reseller
+
+  @@map("seller_type")
+}
+
+enum KycStatus {
+  unsubmitted
+  pending
+  approved
+  rejected
+
+  @@map("kyc_status")
+}
+
+enum SellerStatus {
+  onboarding
+  active
+  paused
+  suspended
+
+  @@map("seller_status")
+}
+
+enum AddressType {
+  shipping
+  billing
+
+  @@map("address_type")
+}
+
+enum StandardCategory {
+  product
+  quality_system
+  electrical_safety
+  registration
+
+  @@map("standard_category")
+}
+
+enum ValidatorType {
+  manual
+  registry_api
+  third_party
+
+  @@map("validator_type")
+}
+
+enum CertHolderType {
+  seller
+  product
+
+  @@map("cert_holder_type")
+}
+
+enum CertStatus {
+  pending
+  verified
+  rejected
+  expired
+  revoked
+
+  @@map("cert_status")
+}
+
+enum VerificationResult {
+  pass
+  fail
+  inconclusive
+
+  @@map("verification_result")
+}
+
+enum ProductStatus {
+  draft
+  pending_review
+  active
+  paused
+  rejected
+  delisted
+
+  @@map("product_status")
+}
+
+enum OrderStatus {
+  pending_payment
+  paid
+  processing
+  shipped
+  delivered
+  completed
+  cancelled
+  refunded
+  disputed
+
+  @@map("order_status")
+}
+
+enum FulfilmentStatus {
+  pending
+  processing
+  shipped
+  delivered
+  cancelled
+  returned
+
+  @@map("fulfilment_status")
+}
+
+enum ShipmentStatus {
+  preparing
+  shipped
+  in_transit
+  delivered
+  failed
+
+  @@map("shipment_status")
+}
+
+enum PaymentStatus {
+  initiated
+  authorized
+  captured
+  failed
+  partially_refunded
+  refunded
+
+  @@map("payment_status")
+}
+
+enum PaymentMethod {
+  card
+  wallet
+  bank_transfer
+
+  @@map("payment_method")
+}
+
+enum LedgerEntryType {
+  capture
+  escrow_hold
+  escrow_release
+  commission
+  payout
+  refund
+  reversal
+  adjustment
+
+  @@map("ledger_entry_type")
+}
+
+enum LedgerAccount {
+  buyer
+  escrow
+  seller_payable
+  platform_revenue
+  processor
+
+  @@map("ledger_account")
+}
+
+enum LedgerDirection {
+  debit
+  credit
+
+  @@map("ledger_direction")
+}
+
+enum EscrowStatus {
+  held
+  released
+  refunded
+  disputed
+
+  @@map("escrow_status")
+}
+
+enum DisputeType {
+  not_received
+  not_as_described
+  damaged
+  counterfeit_or_uncertified
+  other
+
+  @@map("dispute_type")
+}
+
+enum DisputeStatus {
+  open
+  under_review
+  awaiting_buyer
+  awaiting_seller
+  resolved_release
+  resolved_partial_refund
+  resolved_full_refund
+  closed
+
+  @@map("dispute_status")
+}
+
+enum ReviewStatus {
+  published
+  pending_moderation
+  removed
+
+  @@map("review_status")
+}
+
+enum NotifChannel {
+  email
+  sms
+  push
+  in_app
+
+  @@map("notif_channel")
+}
+
+enum NotifStatus {
+  queued
+  sent
+  delivered
+  failed
+  read
+
+  @@map("notif_status")
+}
+
+// =============================================================================
+// MODULE 1 — IDENTITY & ACCESS (§4.2)
+// =============================================================================
+
+/// One row per human/account regardless of role.
+model User {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email           String    @unique @db.Citext
+  phone           String?   @unique @db.VarChar(20)
+  passwordHash    String    @map("password_hash")
+  emailVerifiedAt DateTime? @map("email_verified_at") @db.Timestamptz
+  phoneVerifiedAt DateTime? @map("phone_verified_at") @db.Timestamptz
+  mfaEnabled      Boolean   @default(false) @map("mfa_enabled")
+  mfaSecret       String?   @map("mfa_secret") // encrypted TOTP seed
+  status          UserStatus @default(pending)
+  locale          String    @default("ru-UZ") @db.VarChar(10)
+  lastLoginAt     DateTime? @map("last_login_at") @db.Timestamptz
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz
+
+  // Relations
+  userRoles              UserRole[]
+  sellerProfile          SellerProfile?
+  customerProfile        CustomerProfile?
+  addresses              Address[]
+  carts                  Cart[]
+  wishlists              Wishlist[]
+  orders                 Order[]
+  reviews                Review[]
+  notifications          Notification[]
+  auditLogsAsActor       AuditLog[]             @relation("AuditActor")
+  kycReviewedSellers     SellerProfile[]         @relation("KycReviewer")
+  verifiedCertifications Certification[]         @relation("CertVerifier")
+  certVerificationActors CertificationVerification[]
+  disputesRaised         Dispute[]              @relation("DisputeRaiser")
+  disputesAssigned       Dispute[]              @relation("DisputeAdmin")
+  disputeMessages        DisputeMessage[]
+  refundsProcessed       Refund[]               @relation("RefundProcessor")
+
+  @@map("users")
+}
+
+/// RBAC roles: admin, seller, customer, support, finance, compliance
+model Role {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String   @unique @db.VarChar(50)
+  permissions Json?    // JSONB fine-grained permissions
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  userRoles UserRole[]
+
+  @@map("roles")
+}
+
+/// Join table: user_id + role_id
+model UserRole {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  roleId    String   @map("role_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@map("user_roles")
+}
+
+/// Business identity for sellers (1:1 with a user that has the seller role).
+model SellerProfile {
+  id                 String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId             String       @unique @map("user_id") @db.Uuid
+  legalName          String       @map("legal_name")
+  taxId              String       @map("tax_id") @db.VarChar(50)
+  registrationNumber String       @map("registration_number") @db.VarChar(50)
+  sellerType         SellerType   @map("seller_type")
+  country            String       @db.Char(2) // ISO-3166
+  kycStatus          KycStatus    @default(unsubmitted) @map("kyc_status")
+  kycReviewedBy      String?      @map("kyc_reviewed_by") @db.Uuid
+  payoutAccount      Json?        @map("payout_account") // tokenised bank/wallet
+  commissionRateBps  Int          @default(0) @map("commission_rate_bps") // basis points
+  ratingAvg          Decimal      @default(0) @map("rating_avg") @db.Decimal(3, 2)
+  ratingCount        Int          @default(0) @map("rating_count")
+  status             SellerStatus @default(onboarding)
+  createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime     @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt          DateTime?    @map("deleted_at") @db.Timestamptz
+
+  // Relations
+  user           User            @relation(fields: [userId], references: [id], onDelete: Restrict)
+  kycReviewer    User?           @relation("KycReviewer", fields: [kycReviewedBy], references: [id])
+  products       Product[]
+  certifications Certification[] @relation("SellerCertifications")
+  orderItems     OrderItem[]
+  payouts        Payout[]
+  disputes       Dispute[]
+  reviews        Review[]        @relation("SellerReviews")
+
+  @@map("seller_profiles")
+}
+
+/// Buyer details — clinic, lab, or individual practitioner.
+model CustomerProfile {
+  id                       String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId                   String   @unique @map("user_id") @db.Uuid
+  organizationName         String?  @map("organization_name")
+  practiceLicenseNo        String?  @map("practice_license_no")
+  defaultCurrency          String   @default("UZS") @map("default_currency") @db.Char(3)
+  defaultShippingAddressId String?  @map("default_shipping_address_id") @db.Uuid
+  createdAt                DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt                DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  defaultShippingAddress Address? @relation("DefaultShippingAddress", fields: [defaultShippingAddressId], references: [id])
+
+  @@map("customer_profiles")
+}
+
+/// Shipping and billing addresses.
+model Address {
+  id         String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String      @map("user_id") @db.Uuid
+  type       AddressType
+  recipient  String
+  line1      String
+  line2      String?
+  city       String
+  region     String
+  postalCode String      @map("postal_code")
+  country    String      @db.Char(2)
+  lat        Float?
+  lng        Float?
+  isDefault  Boolean     @default(false) @map("is_default")
+  createdAt  DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime    @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt  DateTime?   @map("deleted_at") @db.Timestamptz
+
+  user                    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  defaultForCustomers     CustomerProfile[] @relation("DefaultShippingAddress")
+  shippingOrders          Order[]           @relation("ShippingAddress")
+  billingOrders           Order[]           @relation("BillingAddress")
+
+  @@map("addresses")
+}
+
+// =============================================================================
+// MODULE 2 — CATALOGUE & CERTIFICATION (§4.3) — DOMAIN CORE
+// =============================================================================
+
+/// Self-referencing category tree. Dental-specific taxonomy.
+model Category {
+  id                  String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  parentId            String?    @map("parent_id") @db.Uuid
+  slug                String     @unique
+  name                String
+  nameI18n            Json       @map("name_i18n") // { "ru": "...", "uz": "...", "en": "..." }
+  path                String     // materialised path for fast subtree queries
+  requiredStandardIds String[]   @map("required_standard_ids") @db.Uuid // which cert standards are mandatory
+  createdAt           DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+
+  parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children Category[] @relation("CategoryTree")
+  products Product[]
+
+  @@map("categories")
+}
+
+/// Reference data for the certification regimes the platform recognises.
+model CertificationStandard {
+  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code            String           @unique @db.VarChar(40) // e.g. CE_MDR, FDA_510K
+  name            String
+  category        StandardCategory
+  issuingRegion   String           @map("issuing_region") @db.VarChar(40)
+  validatorType   ValidatorType    @map("validator_type")
+  validatorConfig Json?            @map("validator_config") // endpoint/lookup config
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+
+  certifications Certification[]
+
+  @@map("certification_standards")
+}
+
+/// A concrete certificate held by either a seller or a product.
+/// THE MOST IMPORTANT TABLE ON THE PLATFORM.
+model Certification {
+  id                 String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  holderType         CertHolderType @map("holder_type")
+  holderId           String        @map("holder_id") @db.Uuid // seller_profile.id or product.id
+  standardId         String        @map("standard_id") @db.Uuid
+  certificateNumber  String        @map("certificate_number") @db.VarChar(120)
+  issuedBy           String        @map("issued_by")
+  issueDate          DateTime      @map("issue_date") @db.Date
+  expiryDate         DateTime?     @map("expiry_date") @db.Date // NULL = no expiry
+  documentObjectKey  String        @map("document_object_key") // S3 key
+  documentSha256     String        @map("document_sha256") @db.Char(64)
+  status             CertStatus    @default(pending)
+  verifiedBy         String?       @map("verified_by") @db.Uuid
+  verifiedAt         DateTime?     @map("verified_at") @db.Timestamptz
+  verificationMethod ValidatorType? @map("verification_method")
+  rejectionReason    String?       @map("rejection_reason")
+  notes              String?
+  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  standard      CertificationStandard   @relation(fields: [standardId], references: [id])
+  verifier      User?                   @relation("CertVerifier", fields: [verifiedBy], references: [id])
+  verifications CertificationVerification[]
+
+  // Polymorphic: connect to seller OR product via application logic
+  sellerProfile SellerProfile? @relation("SellerCertifications", fields: [holderId], references: [id], map: "fk_cert_seller")
+  product       Product?       @relation("ProductCertifications", fields: [holderId], references: [id], map: "fk_cert_product")
+
+  @@index([holderType, holderId], map: "idx_cert_holder")
+  @@index([standardId], map: "idx_cert_standard")
+  @@map("certifications")
+}
+
+/// Append-only audit trail of every verification attempt/decision.
+model CertificationVerification {
+  id              String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  certificationId String             @map("certification_id") @db.Uuid
+  actorId         String             @map("actor_id") @db.Uuid
+  method          ValidatorType
+  result          VerificationResult
+  evidence        Json               // registry response, reviewer note
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz
+  // No updatedAt — append-only
+
+  certification Certification @relation(fields: [certificationId], references: [id])
+  actor         User          @relation(fields: [actorId], references: [id])
+
+  @@map("certification_verifications")
+}
+
+/// A product listing.
+model Product {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sellerId       String        @map("seller_id") @db.Uuid
+  categoryId     String        @map("category_id") @db.Uuid
+  sku            String        @db.VarChar(64)
+  title          String
+  titleI18n      Json?         @map("title_i18n")
+  description    String
+  descriptionI18n Json?        @map("description_i18n")
+  brand          String
+  model          String
+  attributes     Json          @default("{}") // category-specific specs
+  status         ProductStatus @default(draft)
+  basePrice      BigInt        @map("base_price") // minor units
+  currency       String        @db.Char(3)
+  ratingAvg      Decimal       @default(0) @map("rating_avg") @db.Decimal(3, 2)
+  ratingCount    Int           @default(0) @map("rating_count")
+  publishedAt    DateTime?     @map("published_at") @db.Timestamptz
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt      DateTime?     @map("deleted_at") @db.Timestamptz
+
+  seller         SellerProfile   @relation(fields: [sellerId], references: [id])
+  category       Category        @relation(fields: [categoryId], references: [id])
+  certifications Certification[] @relation("ProductCertifications")
+  variants       ProductVariant[]
+  images         ProductImage[]
+  reviews        Review[]
+  wishlistItems  WishlistItem[]
+
+  @@unique([sellerId, sku], map: "idx_product_seller_sku")
+  @@index([categoryId, status], map: "idx_product_category_status")
+  @@index([sellerId, status], map: "idx_product_seller_status")
+  @@map("products")
+}
+
+/// Product variant (e.g., model configurations).
+model ProductVariant {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  productId     String   @map("product_id") @db.Uuid
+  name          String
+  sku           String   @db.VarChar(64)
+  priceOverride BigInt?  @map("price_override") // minor units, NULL = use base_price
+  currency      String?  @db.Char(3)
+  attributes    Json     @default("{}")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  product    Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  inventory  Inventory?
+  cartItems  CartItem[]
+  orderItems OrderItem[]
+
+  @@map("product_variants")
+}
+
+/// Stock tracking per variant.
+model Inventory {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  variantId         String   @unique @map("variant_id") @db.Uuid
+  quantityAvailable Int      @default(0) @map("quantity_available")
+  quantityReserved  Int      @default(0) @map("quantity_reserved")
+  lowStockThreshold Int      @default(5) @map("low_stock_threshold")
+  warehouseLocation String?  @map("warehouse_location")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  variant ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@map("inventory")
+}
+
+/// Product images stored in object storage.
+model ProductImage {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  productId String   @map("product_id") @db.Uuid
+  objectKey String   @map("object_key") // S3 key
+  position  Int      @default(0)
+  alt       String?
+  isPrimary Boolean  @default(false) @map("is_primary")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@map("product_images")
+}
+
+// =============================================================================
+// MODULE 3 — CART & WISHLIST (§4.4)
+// =============================================================================
+
+/// Cart for authenticated users. Guest carts are in Redis and merged on login.
+model Cart {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  user  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items CartItem[]
+
+  @@map("carts")
+}
+
+/// Cart line item with price snapshot at add time.
+model CartItem {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cartId            String   @map("cart_id") @db.Uuid
+  variantId         String   @map("variant_id") @db.Uuid
+  quantity          Int      @default(1)
+  unitPriceSnapshot BigInt   @map("unit_price_snapshot") // minor units at add time
+  currency          String   @db.Char(3)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  cart    Cart           @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  variant ProductVariant @relation(fields: [variantId], references: [id])
+
+  @@map("cart_items")
+}
+
+model Wishlist {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  user  User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items WishlistItem[]
+
+  @@map("wishlists")
+}
+
+model WishlistItem {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  wishlistId String   @map("wishlist_id") @db.Uuid
+  productId  String   @map("product_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  wishlist Wishlist @relation(fields: [wishlistId], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [productId], references: [id])
+
+  @@unique([wishlistId, productId])
+  @@map("wishlist_items")
+}
+
+// =============================================================================
+// MODULE 4 — ORDERS & FULFILMENT (§4.5)
+// =============================================================================
+
+/// A buyer's order. May contain items from multiple sellers.
+model Order {
+  id                String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderNumber       String      @unique @map("order_number") @db.VarChar(20)
+  buyerId           String      @map("buyer_id") @db.Uuid
+  status            OrderStatus @default(pending_payment)
+  currency          String      @db.Char(3)
+  subtotal          BigInt      @default(0) // minor units
+  shippingTotal     BigInt      @default(0) @map("shipping_total")
+  taxTotal          BigInt      @default(0) @map("tax_total")
+  grandTotal        BigInt      @default(0) @map("grand_total")
+  shippingAddressId String      @map("shipping_address_id") @db.Uuid
+  billingAddressId  String      @map("billing_address_id") @db.Uuid
+  placedAt          DateTime    @default(now()) @map("placed_at") @db.Timestamptz
+  createdAt         DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime    @updatedAt @map("updated_at") @db.Timestamptz
+
+  buyer           User       @relation(fields: [buyerId], references: [id])
+  shippingAddress Address    @relation("ShippingAddress", fields: [shippingAddressId], references: [id])
+  billingAddress  Address    @relation("BillingAddress", fields: [billingAddressId], references: [id])
+  items           OrderItem[]
+  shipment        Shipment?
+  payment         Payment?
+  disputes        Dispute[]
+
+  @@map("orders")
+}
+
+/// Per-seller order line. Stores commission as a snapshot.
+model OrderItem {
+  id                    String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId               String          @map("order_id") @db.Uuid
+  variantId             String          @map("variant_id") @db.Uuid
+  sellerId              String          @map("seller_id") @db.Uuid
+  quantity              Int
+  unitPrice             BigInt          @map("unit_price") // minor units snapshot
+  lineTotal             BigInt          @map("line_total")
+  commissionBpsSnapshot Int             @map("commission_bps_snapshot")
+  fulfilmentStatus      FulfilmentStatus @default(pending) @map("fulfilment_status")
+  deliveryConfirmedAt   DateTime?       @map("delivery_confirmed_at") @db.Timestamptz
+  createdAt             DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime        @updatedAt @map("updated_at") @db.Timestamptz
+
+  order       Order          @relation(fields: [orderId], references: [id])
+  variant     ProductVariant @relation(fields: [variantId], references: [id])
+  seller      SellerProfile  @relation(fields: [sellerId], references: [id])
+  review      Review?
+  escrowHolds EscrowHold[]
+
+  @@index([sellerId], map: "idx_order_items_seller")
+  @@map("order_items")
+}
+
+model Shipment {
+  id                String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId           String         @unique @map("order_id") @db.Uuid
+  carrier           String
+  trackingNumber    String?        @map("tracking_number")
+  status            ShipmentStatus @default(preparing)
+  shippedAt         DateTime?      @map("shipped_at") @db.Timestamptz
+  estimatedDelivery DateTime?      @map("estimated_delivery") @db.Timestamptz
+  deliveredAt       DateTime?      @map("delivered_at") @db.Timestamptz
+  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime       @updatedAt @map("updated_at") @db.Timestamptz
+
+  order Order @relation(fields: [orderId], references: [id])
+
+  @@map("shipments")
+}
+
+// =============================================================================
+// MODULE 5 — PAYMENTS, ESCROW & FINANCIAL LEDGER (§4.6)
+// =============================================================================
+
+/// One payment per order checkout.
+model Payment {
+  id                String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId           String        @unique @map("order_id") @db.Uuid
+  provider          String        @db.VarChar(30) // payme, click, uzum, uzcard, humo
+  providerPaymentId String?       @map("provider_payment_id")
+  amount            BigInt        // minor units
+  currency          String        @db.Char(3)
+  status            PaymentStatus @default(initiated)
+  method            PaymentMethod
+  idempotencyKey    String        @unique @map("idempotency_key")
+  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+
+  order        Order         @relation(fields: [orderId], references: [id])
+  ledgerEntries LedgerEntry[]
+  escrowHolds  EscrowHold[]
+  refunds      Refund[]
+
+  @@map("payments")
+}
+
+/// Append-only ledger. THE SINGLE SOURCE OF FINANCIAL TRUTH.
+/// Balances are derived by summing entries, NEVER stored as mutable fields.
+model LedgerEntry {
+  id             String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  paymentId      String          @map("payment_id") @db.Uuid
+  entryType      LedgerEntryType @map("entry_type")
+  account        LedgerAccount
+  direction      LedgerDirection
+  amount         BigInt          // minor units
+  currency       String          @db.Char(3)
+  relatedPartyId String?         @map("related_party_id") @db.Uuid // seller_id for payouts/commission
+  externalRef    String?         @map("external_ref") // processor settlement ref
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  // NO updatedAt — immutable, append-only
+
+  payment Payment @relation(fields: [paymentId], references: [id])
+
+  @@index([paymentId], map: "idx_ledger_payment")
+  @@map("ledger_entries")
+}
+
+/// Escrow hold per order item (per-seller granularity).
+model EscrowHold {
+  id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  paymentId     String       @map("payment_id") @db.Uuid
+  orderItemId   String       @map("order_item_id") @db.Uuid
+  amount        BigInt       // minor units
+  currency      String       @db.Char(3)
+  status        EscrowStatus @default(held)
+  autoReleaseAt DateTime     @map("auto_release_at") @db.Timestamptz
+  releasedAt    DateTime?    @map("released_at") @db.Timestamptz
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime     @updatedAt @map("updated_at") @db.Timestamptz
+
+  payment   Payment   @relation(fields: [paymentId], references: [id])
+  orderItem OrderItem @relation(fields: [orderItemId], references: [id])
+  payouts   Payout[]
+
+  @@map("escrow_holds")
+}
+
+/// Seller payout record.
+model Payout {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sellerId           String   @map("seller_id") @db.Uuid
+  escrowHoldId       String?  @map("escrow_hold_id") @db.Uuid
+  amount             BigInt
+  currency           String   @db.Char(3)
+  status             String   @db.VarChar(20) // scheduled, processing, paid, failed
+  providerPayoutId   String?  @map("provider_payout_id")
+  periodStart        DateTime? @map("period_start") @db.Timestamptz
+  periodEnd          DateTime? @map("period_end") @db.Timestamptz
+  statementObjectKey String?  @map("statement_object_key")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  seller     SellerProfile @relation(fields: [sellerId], references: [id])
+  escrowHold EscrowHold?   @relation(fields: [escrowHoldId], references: [id])
+
+  @@map("payouts")
+}
+
+/// Refund record.
+model Refund {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  paymentId   String   @map("payment_id") @db.Uuid
+  orderItemId String?  @map("order_item_id") @db.Uuid
+  amount      BigInt
+  currency    String   @db.Char(3)
+  reason      String
+  status      String   @db.VarChar(20) // requested, approved, processing, completed, rejected
+  disputeId   String?  @map("dispute_id") @db.Uuid
+  processedBy String?  @map("processed_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  payment   Payment  @relation(fields: [paymentId], references: [id])
+  dispute   Dispute? @relation(fields: [disputeId], references: [id])
+  processor User?    @relation("RefundProcessor", fields: [processedBy], references: [id])
+
+  @@map("refunds")
+}
+
+// =============================================================================
+// MODULE 6 — DISPUTES, REVIEWS, NOTIFICATIONS & AUDIT (§4.7–4.9)
+// =============================================================================
+
+/// Dispute case with SLA tracking.
+model Dispute {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId         String        @map("order_id") @db.Uuid
+  orderItemId     String?       @map("order_item_id") @db.Uuid
+  raisedBy        String        @map("raised_by") @db.Uuid
+  againstSellerId String        @map("against_seller_id") @db.Uuid
+  type            DisputeType
+  status          DisputeStatus @default(open)
+  assignedAdminId String?       @map("assigned_admin_id") @db.Uuid
+  resolutionNotes String?       @map("resolution_notes")
+  openedAt        DateTime      @default(now()) @map("opened_at") @db.Timestamptz
+  resolvedAt      DateTime?     @map("resolved_at") @db.Timestamptz
+  slaDueAt        DateTime      @map("sla_due_at") @db.Timestamptz
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+
+  order         Order          @relation(fields: [orderId], references: [id])
+  raiser        User           @relation("DisputeRaiser", fields: [raisedBy], references: [id])
+  againstSeller SellerProfile  @relation(fields: [againstSellerId], references: [id])
+  assignedAdmin User?          @relation("DisputeAdmin", fields: [assignedAdminId], references: [id])
+  messages      DisputeMessage[]
+  refunds       Refund[]
+
+  @@map("disputes")
+}
+
+/// Threaded messages with evidence attachments.
+model DisputeMessage {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  disputeId   String   @map("dispute_id") @db.Uuid
+  senderId    String   @map("sender_id") @db.Uuid
+  body        String
+  attachments String[] // S3 object keys
+  visibility  String   @default("all") @db.VarChar(10) // all | internal
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  dispute Dispute @relation(fields: [disputeId], references: [id])
+  sender  User    @relation(fields: [senderId], references: [id])
+
+  @@map("dispute_messages")
+}
+
+/// Purchase-verified review. One per order_item.
+model Review {
+  id               String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderItemId      String       @unique @map("order_item_id") @db.Uuid
+  authorId         String       @map("author_id") @db.Uuid
+  productId        String       @map("product_id") @db.Uuid
+  sellerId         String       @map("seller_id") @db.Uuid
+  rating           Int          // 1-5
+  title            String?
+  body             String?
+  status           ReviewStatus @default(pending_moderation)
+  sellerResponse   String?      @map("seller_response")
+  verifiedPurchase Boolean      @default(true) @map("verified_purchase")
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime     @updatedAt @map("updated_at") @db.Timestamptz
+
+  orderItem OrderItem     @relation(fields: [orderItemId], references: [id])
+  author    User          @relation(fields: [authorId], references: [id])
+  product   Product       @relation(fields: [productId], references: [id])
+  seller    SellerProfile @relation("SellerReviews", fields: [sellerId], references: [id])
+
+  @@map("reviews")
+}
+
+/// Multi-channel notifications.
+model Notification {
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String       @map("user_id") @db.Uuid
+  channel     NotifChannel
+  templateKey String       @map("template_key")
+  payload     Json
+  status      NotifStatus  @default(queued)
+  sentAt      DateTime?    @map("sent_at") @db.Timestamptz
+  readAt      DateTime?    @map("read_at") @db.Timestamptz
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, status], map: "idx_notification_user_status")
+  @@map("notifications")
+}
+
+/// Per-user, per-category notification opt-in/out.
+model NotificationPreference {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  category  String   // e.g. "marketing", "order_updates", "disputes"
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@unique([userId, category])
+  @@map("notification_preferences")
+}
+
+/// Append-only governance audit trail.
+model AuditLog {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  actorId    String   @map("actor_id") @db.Uuid
+  action     String   // e.g. "cert.verified", "dispute.resolved", "payout.approved"
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id") @db.Uuid
+  before     Json?    // state before change
+  after      Json?    // state after change
+  ip         String?  @db.VarChar(45)
+  userAgent  String?  @map("user_agent")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+  // NO updatedAt — immutable, append-only
+
+  actor User @relation("AuditActor", fields: [actorId], references: [id])
+  // entityId is polymorphic — references different tables based on entityType
+  // No FK constraint; resolved in application logic
+
+  @@map("audit_logs")
+}
