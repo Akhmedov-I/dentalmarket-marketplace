@@ -163,7 +163,16 @@ export class AuthService {
     });
 
     // Generate token pair
-    return this.generateTokenPair(user.id, user.email, roleNames);
+    const tokens = await this.generateTokenPair(user.id, user.email, roleNames);
+    return {
+      user: {
+        id: user.id,
+        email: user.email,
+        roles: roleNames,
+      },
+      token: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+    };
   }
 
   /**

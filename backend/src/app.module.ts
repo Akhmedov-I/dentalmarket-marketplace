@@ -11,6 +11,15 @@ import { WishlistModule } from './modules/wishlist/wishlist.module';
 import { FinanceModule } from './shared/finance/finance.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { PaymentsModule } from './modules/payments/payments.module';
+import { DisputesModule } from './modules/disputes/disputes.module';
+import { ReviewsModule } from './modules/reviews/reviews.module';
+import { HealthModule } from './shared/health/health.module';
+import { AdminModule } from './modules/admin/admin.module';
+import { WorkersModule } from './workers/workers.module';
+import { SearchModule } from './modules/search/search.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
+import { ReportingModule } from './modules/reporting/reporting.module';
+import { ProvidersModule } from './shared/providers/providers.module';
 
 @Module({
   imports: [
@@ -18,6 +27,7 @@ import { PaymentsModule } from './modules/payments/payments.module';
     PrismaModule,
     RedisModule,
     StorageModule,
+    ProvidersModule,
     FinanceModule,
     AuthModule,
     CertificationModule,
@@ -26,6 +36,14 @@ import { PaymentsModule } from './modules/payments/payments.module';
     WishlistModule,
     OrdersModule,
     PaymentsModule,
+    DisputesModule,
+    ReviewsModule,
+    HealthModule,
+    AdminModule,
+    WorkersModule,
+    SearchModule,
+    NotificationsModule,
+    ReportingModule,
   ],
 })
 export class AppModule {}

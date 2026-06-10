@@ -5,9 +5,9 @@
   "description": "DentalMarket — multi-platform marketplace for certified dental equipment",
   "scripts": {
     "dev:backend": "pnpm --filter backend dev",
-    "dev:frontend": "pnpm --filter frontend dev",
+    "dev:frontend": "pnpm --filter web dev",
     "build:backend": "pnpm --filter backend build",
-    "build:frontend": "pnpm --filter frontend build",
+    "build:frontend": "pnpm --filter web build",
     "test:backend": "pnpm --filter backend test",
     "lint": "pnpm -r lint",
     "db:migrate": "pnpm --filter backend exec prisma migrate dev",

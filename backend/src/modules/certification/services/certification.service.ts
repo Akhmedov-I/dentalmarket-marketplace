@@ -3,7 +3,7 @@ import { PrismaService } from '@shared/db/prisma.service';
 import { StorageService } from '@shared/storage/storage.service';
 import { UploadCertDto } from '../dto/upload-cert.dto';
 import { VerifyCertDto } from '../dto/verify-cert.dto';
-import { CertStatus, CertHolderType, VerificationResult } from '@prisma/client';
+import { CertStatus, CertHolderType, VerificationResult, ProductStatus, SellerStatus } from '@prisma/client';
 
 @Injectable()
 export class CertificationService {
@@ -325,6 +325,151 @@ export class CertificationService {
     return {
       isValid: false,
       missingStandards: missingStandards.map((s) => s.code),
+    };
+  }
+
+  /**
+   * Scans for expired certifications, transitions their status, and automatically
+   * pauses any affected products or sellers to enforce compliance.
+   */
+  async checkExpiredCertifications() {
+    const now = new Date();
+
+    // 1. Find all verified certifications that are past their expiry date
+    const expiredCerts = await this.prisma.certification.findMany({
+      where: {
+        status: CertStatus.verified,
+        expiryDate: {
+          not: null,
+          lt: now,
+        },
+      },
+    });
+
+    const expiredCertIds = expiredCerts.map((c) => c.id);
+    const pausedProductIds: string[] = [];
+    const pausedSellerProfileIds: string[] = [];
+
+    if (expiredCertIds.length === 0) {
+      return { expiredCertIds, pausedProductIds, pausedSellerProfileIds };
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      // Find a valid admin/compliance user or any user to use as actorId to satisfy the FK constraint
+      let systemUser = await tx.user.findFirst({
+        where: { userRoles: { some: { role: { name: 'admin' } } } },
+      });
+      if (!systemUser) {
+        systemUser = await tx.user.findFirst();
+      }
+      const systemActorId = systemUser?.id || '00000000-0000-0000-0000-000000000000';
+
+      // Transition all expired certificates to CertStatus.expired
+      await tx.certification.updateMany({
+        where: { id: { in: expiredCertIds } },
+        data: { status: CertStatus.expired },
+      });
+
+      for (const cert of expiredCerts) {
+        // Record audit log for certificate expiration
+        await tx.auditLog.create({
+          data: {
+            actorId: systemActorId,
+            action: 'cert.expired',
+            entityType: 'Certification',
+            entityId: cert.id,
+            before: { status: CertStatus.verified },
+            after: { status: CertStatus.expired },
+          },
+        });
+
+        // If it's a product certification, validate compliance
+        if (cert.productId) {
+          const product = await tx.product.findUnique({
+            where: { id: cert.productId },
+          });
+
+          if (product && product.status === ProductStatus.active) {
+            // Re-validate product certifications under transaction context
+            const activeProductCerts = await tx.certification.findMany({
+              where: {
+                productId: product.id,
+                status: CertStatus.verified,
+                OR: [
+                  { expiryDate: null },
+                  { expiryDate: { gt: now } },
+                ],
+              },
+            });
+            const activeStandardIds = new Set(activeProductCerts.map((c) => c.standardId));
+
+            // Fetch category required standards
+            const category = await tx.category.findUnique({
+              where: { id: product.categoryId },
+            });
+            const requiredIds = category?.requiredStandardIds || [];
+
+            const isStillValid = requiredIds.every((id) => activeStandardIds.has(id));
+
+            if (!isStillValid) {
+              await tx.product.update({
+                where: { id: product.id },
+                data: { status: ProductStatus.paused },
+              });
+              pausedProductIds.push(product.id);
+
+              await tx.auditLog.create({
+                data: {
+                  actorId: systemActorId,
+                  action: 'product.auto_paused',
+                  entityType: 'Product',
+                  entityId: product.id,
+                  before: { status: ProductStatus.active },
+                  after: {
+                    status: ProductStatus.paused,
+                    reason: `Auto-paused due to expiration of certificate ${cert.certificateNumber} (${cert.id})`,
+                  },
+                },
+              });
+            }
+          }
+        }
+
+        // If it's a seller-level certification, pause the seller profile
+        if (cert.sellerProfileId) {
+          const seller = await tx.sellerProfile.findUnique({
+            where: { id: cert.sellerProfileId },
+          });
+
+          if (seller && seller.status === SellerStatus.active) {
+            await tx.sellerProfile.update({
+              where: { id: seller.id },
+              data: { status: SellerStatus.paused },
+            });
+            pausedSellerProfileIds.push(seller.id);
+
+            await tx.auditLog.create({
+              data: {
+                actorId: systemActorId,
+                action: 'seller.auto_paused',
+                entityType: 'SellerProfile',
+                entityId: seller.id,
+                before: { status: SellerStatus.active },
+                after: {
+                  status: SellerStatus.paused,
+                  reason: `Auto-paused due to expiration of certificate ${cert.certificateNumber} (${cert.id})`,
+                },
+              },
+            });
+          }
+        }
+      }
+    });
+
+    return {
+      expiredCertIds,
+      pausedProductIds,
+      pausedSellerProfileIds,
     };
   }
 }

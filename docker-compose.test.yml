@@ -1,0 +1,66 @@
+# ─────────────────────────────────────────
+# DentalMarket — Test Environment
+# ─────────────────────────────────────────
+# Usage:
+#   docker compose -f docker-compose.test.yml up -d
+#   # Wait for healthy status
+#   npm run test:integration
+#   docker compose -f docker-compose.test.yml down -v
+
+services:
+  postgres-test:
+    image: postgres:16-alpine
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: dentalmarket_test
+      POSTGRES_PASSWORD: dentalmarket_test
+      POSTGRES_DB: dentalmarket_test
+    volumes:
+      - ./docker-data/postgres-init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dentalmarket_test"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    tmpfs:
+      - /var/lib/postgresql/data
+    networks:
+      - test-net
+
+  redis-test:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    command: redis-server --appendonly no --save ""
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    tmpfs:
+      - /data
+    networks:
+      - test-net
+
+  opensearch-test:
+    image: opensearchproject/opensearch:2.11.0
+    ports:
+      - "9201:9200"
+    environment:
+      - discovery.type=single-node
+      - DISABLE_SECURITY_PLUGIN=true
+      - OPENSEARCH_JAVA_OPTS=-Xms256m -Xmx256m
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    tmpfs:
+      - /usr/share/opensearch/data
+    networks:
+      - test-net
+
+networks:
+  test-net:
+    driver: bridge

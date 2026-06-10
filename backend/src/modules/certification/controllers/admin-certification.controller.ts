@@ -26,4 +26,9 @@ export class AdminCertificationController {
   ) {
     return this.certService.verifyCertificate(user.sub, id, dto);
   }
+
+  @Post('check-expiry')
+  async checkExpiry() {
+    return this.certService.checkExpiredCertifications();
+  }
 }

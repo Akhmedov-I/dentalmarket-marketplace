@@ -214,105 +214,103 @@ export class PaymentsService {
    * Refund an order item before delivery.
    * Returns hold money from escrow back to buyer via processor.
    */
-  async refundOrderItem(orderItemId: string, actorId: string, reason: string) {
-    return this.prisma.$transaction(async (tx) => {
-      const hold = await tx.escrowHold.findFirst({
-        where: { orderItemId, status: EscrowStatus.held },
-        include: {
-          orderItem: {
-            include: { order: true },
-          },
+  async refundOrderItem(tx: Prisma.TransactionClient, orderItemId: string, actorId: string, reason: string) {
+    const hold = await tx.escrowHold.findFirst({
+      where: { orderItemId, status: EscrowStatus.held },
+      include: {
+        orderItem: {
+          include: { order: true },
         },
-      });
-
-      if (!hold) {
-        throw new NotFoundException('Active escrow hold not found for this order item');
-      }
-
-      // 1. Update EscrowHold status to refunded
-      await tx.escrowHold.update({
-        where: { id: hold.id },
-        data: {
-          status: EscrowStatus.refunded,
-          releasedAt: new Date(),
-        },
-      });
-
-      // 2. Update OrderItem fulfilmentStatus to cancelled
-      await tx.orderItem.update({
-        where: { id: orderItemId },
-        data: {
-          fulfilmentStatus: FulfilmentStatus.cancelled,
-        },
-      });
-
-      // 3. Create Refund record
-      const refund = await tx.refund.create({
-        data: {
-          paymentId: hold.paymentId,
-          orderItemId,
-          amount: hold.amount,
-          currency: hold.currency,
-          reason,
-          status: 'completed',
-          processedBy: actorId,
-        },
-      });
-
-      // 4. Record ledger entries: escrow -> buyer, buyer -> processor
-      // Move from escrow back to buyer
-      await this.ledgerService.recordDoubleEntry(
-        tx,
-        {
-          paymentId: hold.paymentId,
-          entryType: LedgerEntryType.refund,
-          account: LedgerAccount.escrow,
-          amount: hold.amount,
-          currency: hold.currency,
-        },
-        {
-          paymentId: hold.paymentId,
-          entryType: LedgerEntryType.refund,
-          account: LedgerAccount.buyer,
-          amount: hold.amount,
-          currency: hold.currency,
-        },
-      );
-
-      // Move from buyer back to processor
-      await this.ledgerService.recordDoubleEntry(
-        tx,
-        {
-          paymentId: hold.paymentId,
-          entryType: LedgerEntryType.refund,
-          account: LedgerAccount.buyer,
-          amount: hold.amount,
-          currency: hold.currency,
-        },
-        {
-          paymentId: hold.paymentId,
-          entryType: LedgerEntryType.refund,
-          account: LedgerAccount.processor,
-          amount: hold.amount,
-          currency: hold.currency,
-        },
-      );
-
-      // 5. Update overall Order status if all items are cancelled/refunded
-      const siblingItems = await tx.orderItem.findMany({
-        where: { orderId: hold.orderItem.orderId },
-      });
-
-      const allRefunded = siblingItems.every((item) => item.fulfilmentStatus === FulfilmentStatus.cancelled);
-      if (allRefunded) {
-        await tx.order.update({
-          where: { id: hold.orderItem.orderId },
-          data: { status: OrderStatus.refunded },
-        });
-      }
-
-      return refund;
+      },
     });
+
+    if (!hold) {
+      throw new NotFoundException('Active escrow hold not found for this order item');
+    }
+
+    // 1. Update EscrowHold status to refunded
+    await tx.escrowHold.update({
+      where: { id: hold.id },
+      data: {
+        status: EscrowStatus.refunded,
+        releasedAt: new Date(),
+      },
+    });
+
+    // 2. Update OrderItem fulfilmentStatus to cancelled
+    await tx.orderItem.update({
+      where: { id: orderItemId },
+      data: {
+        fulfilmentStatus: FulfilmentStatus.cancelled,
+      },
+    });
+
+    // 3. Create Refund record
+    const refund = await tx.refund.create({
+      data: {
+        paymentId: hold.paymentId,
+        orderItemId,
+        amount: hold.amount,
+        currency: hold.currency,
+        reason,
+        status: 'completed',
+        processedBy: actorId,
+      },
+    });
+
+    // 4. Record ledger entries: escrow -> buyer, buyer -> processor
+    // Move from escrow back to buyer
+    await this.ledgerService.recordDoubleEntry(
+      tx,
+      {
+        paymentId: hold.paymentId,
+        entryType: LedgerEntryType.refund,
+        account: LedgerAccount.escrow,
+        amount: hold.amount,
+        currency: hold.currency,
+      },
+      {
+        paymentId: hold.paymentId,
+        entryType: LedgerEntryType.refund,
+        account: LedgerAccount.buyer,
+        amount: hold.amount,
+        currency: hold.currency,
+      },
+    );
+
+    // Move from buyer back to processor
+    await this.ledgerService.recordDoubleEntry(
+      tx,
+      {
+        paymentId: hold.paymentId,
+        entryType: LedgerEntryType.refund,
+        account: LedgerAccount.buyer,
+        amount: hold.amount,
+        currency: hold.currency,
+      },
+      {
+        paymentId: hold.paymentId,
+        entryType: LedgerEntryType.refund,
+        account: LedgerAccount.processor,
+        amount: hold.amount,
+        currency: hold.currency,
+      },
+    );
+
+    // 5. Update overall Order status if all items are cancelled/refunded
+    const siblingItems = await tx.orderItem.findMany({
+      where: { orderId: hold.orderItem.orderId },
+    });
+
+    const allRefunded = siblingItems.every((item) => item.fulfilmentStatus === FulfilmentStatus.cancelled);
+    if (allRefunded) {
+      await tx.order.update({
+        where: { id: hold.orderItem.orderId },
+        data: { status: OrderStatus.refunded },
+      });
+    }
+
+    return refund;
   }
 
   /**

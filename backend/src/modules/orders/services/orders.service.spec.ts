@@ -156,16 +156,14 @@ describe('Orders & Payments Integration Tests', () => {
 
   async function cleanup() {
     if (prisma) {
-      // Clean up ledger and escrow entries first (foreign key cascades)
-      await prisma.payout.deleteMany({});
-      await prisma.refund.deleteMany({});
-      await prisma.escrowHold.deleteMany({});
-      await prisma.ledgerEntry.deleteMany({});
-      await prisma.shipment.deleteMany({});
-      await prisma.orderItem.deleteMany({});
-      await prisma.payment.deleteMany({});
-      await prisma.order.deleteMany({});
-      await prisma.cartItem.deleteMany({});
+      // Use TRUNCATE to bypass append-only triggers on ledger_entries, audit_logs
+      await prisma.$executeRawUnsafe(`
+        TRUNCATE TABLE 
+          dispute_messages, disputes, reviews, payouts, refunds,
+          escrow_holds, ledger_entries, shipments, order_items,
+          payments, orders, cart_items
+        CASCADE
+      `);
 
       if (testProduct) {
         await prisma.inventory.deleteMany({ where: { variantId: testVariant?.id } });
@@ -412,7 +410,9 @@ describe('Orders & Payments Integration Tests', () => {
       });
 
       // 2. Perform refund
-      const refund = await paymentsService.refundOrderItem(orderItem!.id, buyerUser.id, 'Faulty product');
+      const refund = await prisma.$transaction(async (tx) => {
+        return paymentsService.refundOrderItem(tx, orderItem!.id, buyerUser.id, 'Faulty product');
+      });
       expect(refund).toBeDefined();
       expect(refund.status).toBe('completed');
       expect(refund.reason).toBe('Faulty product');

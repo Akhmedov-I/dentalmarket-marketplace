@@ -13,7 +13,21 @@ export class AuthController {
 
   @Post('register')
   async register(@Body() dto: RegisterDto) {
-    return this.authService.register(dto);
+    const user = await this.authService.register(dto);
+    const tokens = await this.authService.login({
+      email: dto.email,
+      password: dto.password,
+    });
+    return {
+      user: {
+        id: user.id,
+        email: user.email,
+        phone: user.phone,
+        roles: [dto.role],
+      },
+      token: tokens.token,
+      refreshToken: tokens.refreshToken,
+    };
   }
 
   @Post('login')
