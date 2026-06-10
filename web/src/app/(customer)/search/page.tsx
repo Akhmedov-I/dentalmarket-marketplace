@@ -29,6 +29,21 @@ interface Product {
   imageColor: string;
 }
 
+interface SearchHit {
+  id: string;
+  title: string;
+  brand?: string;
+  base_price?: string | number;
+  rating_avg?: number;
+  certification_standards?: string[];
+  in_stock?: boolean;
+  category_id?: string;
+}
+
+interface SearchResponse {
+  hits?: SearchHit[];
+}
+
 // Rich fallback mock database if API fails or is loading
 const MOCK_PRODUCTS: Product[] = [
   { id: '1', title: 'Стоматологическая установка Ajax AJ15', brand: 'Ajax', price: 85000000, rating: 4.8, certified: true, inStock: true, category: 'equipment', imageColor: 'from-blue-600 to-indigo-700' },
@@ -66,10 +81,10 @@ function SearchPageContent() {
     queryFn: async () => {
       const path = `/search?q=${encodeURIComponent(queryParam)}&category=${selectedCategory}`;
       try {
-        const res = await api.get<any>(path);
+        const res = await api.get<SearchResponse>(path);
         console.log('🔍 Search API response:', JSON.stringify(res));
         if (res && Array.isArray(res.hits)) {
-          return res.hits.map((h: any) => ({
+          return res.hits.map((h: SearchHit) => ({
             id: h.id,
             title: h.title,
             brand: h.brand || 'Unbranded',
@@ -82,7 +97,7 @@ function SearchPageContent() {
           }));
         }
         if (Array.isArray(res)) {
-          return res;
+          return res as unknown as Product[];
         }
         return MOCK_PRODUCTS;
       } catch (err) {
