@@ -4,6 +4,7 @@
   "private": true,
   "description": "DentalMarket — multi-platform marketplace for certified dental equipment",
   "scripts": {
+    "build": "pnpm build:backend && pnpm build:frontend",
     "dev:backend": "pnpm --filter backend dev",
     "dev:frontend": "pnpm --filter web dev",
     "build:backend": "pnpm --filter backend build",

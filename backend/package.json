@@ -4,6 +4,7 @@
   "private": true,
   "description": "DentalMarket API — NestJS modular monolith",
   "scripts": {
+    "prebuild": "prisma generate",
     "build": "nest build",
     "dev": "nest start --watch",
     "start": "nest start",
