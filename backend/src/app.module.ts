@@ -6,6 +6,8 @@ import { AuthModule } from './modules/auth/auth.module';
 import { StorageModule } from './shared/storage/storage.module';
 import { CertificationModule } from './modules/certification/certification.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
+import { CartModule } from './modules/cart/cart.module';
+import { WishlistModule } from './modules/wishlist/wishlist.module';
 
 @Module({
   imports: [
@@ -16,6 +18,8 @@ import { CatalogModule } from './modules/catalog/catalog.module';
     AuthModule,
     CertificationModule,
     CatalogModule,
+    CartModule,
+    WishlistModule,
   ],
 })
 export class AppModule {}
