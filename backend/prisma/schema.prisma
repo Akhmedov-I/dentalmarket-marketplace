@@ -449,7 +449,8 @@ model CertificationStandard {
 model Certification {
   id                 String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   holderType         CertHolderType @map("holder_type")
-  holderId           String        @map("holder_id") @db.Uuid // seller_profile.id or product.id
+  sellerProfileId    String?        @map("seller_profile_id") @db.Uuid
+  productId          String?        @map("product_id") @db.Uuid
   standardId         String        @map("standard_id") @db.Uuid
   certificateNumber  String        @map("certificate_number") @db.VarChar(120)
   issuedBy           String        @map("issued_by")
@@ -471,11 +472,11 @@ model Certification {
   verifier      User?                   @relation("CertVerifier", fields: [verifiedBy], references: [id])
   verifications CertificationVerification[]
 
-  // Polymorphic: connect to seller OR product via application logic
-  sellerProfile SellerProfile? @relation("SellerCertifications", fields: [holderId], references: [id], map: "fk_cert_seller")
-  product       Product?       @relation("ProductCertifications", fields: [holderId], references: [id], map: "fk_cert_product")
+  sellerProfile SellerProfile? @relation("SellerCertifications", fields: [sellerProfileId], references: [id], onDelete: Cascade)
+  product       Product?       @relation("ProductCertifications", fields: [productId], references: [id], onDelete: Cascade)
 
-  @@index([holderType, holderId], map: "idx_cert_holder")
+  @@index([sellerProfileId], map: "idx_cert_seller_profile")
+  @@index([productId], map: "idx_cert_product")
   @@index([standardId], map: "idx_cert_standard")
   @@map("certifications")
 }

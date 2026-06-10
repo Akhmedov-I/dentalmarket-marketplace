@@ -1,3 +1,6 @@
+CREATE EXTENSION IF NOT EXISTS "citext";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
 -- CreateEnum
 CREATE TYPE "user_status" AS ENUM ('active', 'suspended', 'pending', 'banned');
 
