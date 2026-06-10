@@ -8,6 +8,9 @@ import { CertificationModule } from './modules/certification/certification.modul
 import { CatalogModule } from './modules/catalog/catalog.module';
 import { CartModule } from './modules/cart/cart.module';
 import { WishlistModule } from './modules/wishlist/wishlist.module';
+import { FinanceModule } from './shared/finance/finance.module';
+import { OrdersModule } from './modules/orders/orders.module';
+import { PaymentsModule } from './modules/payments/payments.module';
 
 @Module({
   imports: [
@@ -15,11 +18,14 @@ import { WishlistModule } from './modules/wishlist/wishlist.module';
     PrismaModule,
     RedisModule,
     StorageModule,
+    FinanceModule,
     AuthModule,
     CertificationModule,
     CatalogModule,
     CartModule,
     WishlistModule,
+    OrdersModule,
+    PaymentsModule,
   ],
 })
 export class AppModule {}
