@@ -38,17 +38,37 @@ export class HealthController {
   @ApiOperation({ summary: 'Database diagnostics' })
   async getDbDiagnostics() {
     try {
-      const tables: any[] = await this.prisma.$queryRawUnsafe(`
+      let tables: any[] = await this.prisma.$queryRawUnsafe(`
         SELECT tablename FROM pg_catalog.pg_tables 
         WHERE schemaname = 'public'
       `);
       
+      let migrationResult = 'Not needed (tables already exist)';
+      if (tables.length === 0) {
+        try {
+          const { execSync } = require('child_process');
+          migrationResult = execSync('npx prisma migrate deploy', { encoding: 'utf8', cwd: '/app/backend' });
+          
+          // Re-query tables after migration
+          tables = await this.prisma.$queryRawUnsafe(`
+            SELECT tablename FROM pg_catalog.pg_tables 
+            WHERE schemaname = 'public'
+          `);
+
+          // Seed reference data and test users
+          const { seedDatabaseIfEmpty } = require('../db/prisma-seed.helper');
+          await seedDatabaseIfEmpty(this.prisma);
+        } catch (migErr: any) {
+          migrationResult = 'Failed: ' + migErr.message + '\nStdout: ' + migErr.stdout + '\nStderr: ' + migErr.stderr;
+        }
+      }
+
       let migrations: any[] = [];
       try {
         migrations = await this.prisma.$queryRawUnsafe(`
           SELECT id, migration_name, rolled_back_at, started_at, finished_at FROM "_prisma_migrations"
         `);
-      } catch (err) {
+      } catch (err: any) {
         migrations = [{ error: err.message }];
       }
 
@@ -65,6 +85,7 @@ export class HealthController {
 
       return {
         status: 'ok',
+        migrationResult,
         tables: tables.map(t => t.tablename),
         migrations,
         counts
