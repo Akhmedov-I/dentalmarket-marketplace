@@ -34,6 +34,50 @@ export class HealthController {
     return { status: 'ok' };
   }
 
+  @Get('healthz/db-diagnostics')
+  @ApiOperation({ summary: 'Database diagnostics' })
+  async getDbDiagnostics() {
+    try {
+      const tables: any[] = await this.prisma.$queryRawUnsafe(`
+        SELECT tablename FROM pg_catalog.pg_tables 
+        WHERE schemaname = 'public'
+      `);
+      
+      let migrations: any[] = [];
+      try {
+        migrations = await this.prisma.$queryRawUnsafe(`
+          SELECT id, migration_name, rolled_back_at, started_at, finished_at FROM "_prisma_migrations"
+        `);
+      } catch (err) {
+        migrations = [{ error: err.message }];
+      }
+
+      const counts: Record<string, number> = {};
+      for (const t of tables) {
+        const name = t.tablename;
+        try {
+          const res: any[] = await this.prisma.$queryRawUnsafe('SELECT COUNT(*) as count FROM "' + name + '"');
+          counts[name] = Number(res[0].count);
+        } catch (err) {
+          counts[name] = -1;
+        }
+      }
+
+      return {
+        status: 'ok',
+        tables: tables.map(t => t.tablename),
+        migrations,
+        counts
+      };
+    } catch (err: any) {
+      return {
+        status: 'error',
+        message: err.message,
+        stack: err.stack
+      };
+    }
+  }
+
   @Get('readyz')
   @ApiOperation({ summary: 'Readiness probe — checks database and Redis' })
   @ApiResponse({ status: 200, description: 'Service is ready' })
