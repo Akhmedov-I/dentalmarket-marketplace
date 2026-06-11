@@ -4,6 +4,8 @@ import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AllExceptionsFilter } from '@shared/filters/all-exceptions.filter';
 import { RequestIdMiddleware } from '@shared/middleware/request-id.middleware';
+import { PrismaService } from '@shared/db/prisma.service';
+import { seedDatabaseIfEmpty } from '@shared/db/prisma-seed.helper';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -57,6 +59,9 @@ async function bootstrap() {
   SwaggerModule.setup('api/docs', app, document);
 
   const port = process.env.PORT || 3000;
+  const prisma = app.get(PrismaService);
+  await seedDatabaseIfEmpty(prisma);
+
   await app.listen(port);
   console.log(`DentalMarket API running on port ${port}`);
   console.log(`Swagger docs available at http://localhost:${port}/api/docs`);
